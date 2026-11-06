@@ -125,6 +125,9 @@ class PeerMissReason(str, enum.Enum):
 class PeerKVIdentity:
     compatibility_hash: str  # From compute_nixl_compatibility_hash.
     block_size: int
+    # CacheConfig.prefix_caching_hash_algo. The compatibility hash does not
+    # cover it, and peers that hash differently never share a block hash.
+    hash_algo: str
     cache_salt: str | None = None
 
 
