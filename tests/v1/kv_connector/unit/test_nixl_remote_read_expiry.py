@@ -496,7 +496,9 @@ def test_decode_scheduler_ships_the_lease_with_heartbeats():
     [
         LookupPinRequest(
             block_hashes=[b"\x01" * 32, b"\x02" * 32],
-            identity=PeerKVIdentity("abc123", 16, cache_salt="salt"),
+            identity=PeerKVIdentity(
+                "abc123", 16, hash_algo="sha256", cache_salt="salt"
+            ),
             lease_duration=30.0,
         ),
         LookupPinReply(
