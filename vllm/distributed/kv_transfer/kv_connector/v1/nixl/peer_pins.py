@@ -54,6 +54,14 @@ _MISS_REASONS = {
 }
 
 
+def hashes_not_reproducible(hash_algo: str) -> bool:
+    """Whether block hashes of ``hash_algo`` differ between processes here."""
+    return (
+        hash_algo in _PROCESS_SEEDED_HASH_ALGOS
+        and os.environ.get("PYTHONHASHSEED") is None
+    )
+
+
 def miss_reply(reason: PeerMissReason) -> LookupPinReply:
     return LookupPinReply(
         hit_tokens=0,
@@ -168,10 +176,7 @@ class PeerPinServer:
             return f"block size {identity.block_size} != {self._block_size}"
         if identity.hash_algo != self._hash_algo:
             return f"hash algo {identity.hash_algo} != {self._hash_algo}"
-        if (
-            self._hash_algo in _PROCESS_SEEDED_HASH_ALGOS
-            and os.environ.get("PYTHONHASHSEED") is None
-        ):
+        if hashes_not_reproducible(self._hash_algo):
             if not self._warned_unseeded:
                 self._warned_unseeded = True
                 logger.warning(

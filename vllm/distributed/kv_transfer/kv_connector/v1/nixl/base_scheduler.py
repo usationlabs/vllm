@@ -7,7 +7,9 @@ import os
 import queue
 import threading
 import time
+import uuid
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import msgspec
@@ -64,6 +66,39 @@ if TYPE_CHECKING:
 logger = init_logger(__name__)
 
 _LISTENER_POLL_MS = 1000
+
+
+@dataclass
+class PeerLookupStats:
+    """Consumer-side peer lookup counters (scheduler thread only)."""
+
+    lookups: int = 0
+    full_hits: int = 0
+    partial_hits: int = 0
+    # PeerMissReason values, plus the local reasons "timeout", "bad_reply",
+    # "send_failed", "closed" and "local_precondition".
+    misses: dict[str, int] = field(default_factory=dict)
+    # Lookups cancelled because the request went away.
+    cancelled: int = 0
+    # Hits that load nothing (the local hit covers them, or the load is below
+    # the recompute threshold): A's pin is freed by a notify-only recv.
+    notify_only_releases: int = 0
+    # Pins whose lookup was cancelled, released on the peer / left to expire.
+    orphans_released: int = 0
+    orphans_unreleased: int = 0
+
+    def record_miss(self, reason: str) -> None:
+        self.misses[reason] = self.misses.get(reason, 0) + 1
+
+
+@dataclass(frozen=True)
+class PeerEndpoint:
+    """What the worker needs to handshake with a peer, from request params."""
+
+    engine_id: EngineId
+    tp_size: int | None
+    dcp_size: int = 1
+    pp_size: int = 1
 
 
 class PeerLookupChannel:
@@ -258,6 +293,10 @@ class NixlBaseConnectorScheduler:
         self._peer_pin_serve_timeout = float(extra("peer_lookup_serve_timeout", 5.0))
         self._peer_lookup_timeout = float(extra("peer_lookup_timeout", 2.0))
         self._lookup_client: PeerLookupClient | None = None
+        self.peer_lookup_stats = PeerLookupStats()
+        # (host, port) of a peer's side channel -> how to reach its engine; filled
+        # when a lookup is submitted, used to release pins of cancelled lookups.
+        self._peer_endpoints: dict[tuple[str, int], PeerEndpoint] = {}
         self._peer_pins: PeerPinServer | None = None
         self._compatibility_hash: str | None = None
         self._lookup = PeerLookupChannel()
@@ -378,6 +417,10 @@ class NixlBaseConnectorScheduler:
         # effectively disabled for Bidirectional KV transfer.
         if params is None or not params.get("do_remote_prefill"):
             return
+        self._register_heartbeat(request.request_id, params)
+
+    def _register_heartbeat(self, req_id: ReqId, params: dict[str, Any]) -> None:
+        """Start lease-renewal heartbeats for the remote blocks named in ``params``."""
         # Only track if all required remote fields are present.
         remote_engine_id = params.get("remote_engine_id")
         remote_request_id = params.get("remote_request_id")
@@ -409,7 +452,7 @@ class NixlBaseConnectorScheduler:
         extension = params.get("remote_lease_extension")
         if expiry is not None and extension:
             info.leases[remote_request_id] = (expiry, extension)
-        self._heartbeat_req_engine[request.request_id] = (
+        self._heartbeat_req_engine[req_id] = (
             remote_engine_id,
             remote_request_id,
         )
@@ -779,6 +822,8 @@ class NixlBaseConnectorScheduler:
                 awaiting_kvs=awaiting_kvs,
             )
 
+        self._release_orphaned_pins(meta)
+
         if self.use_host_buffer:
             self._build_save_meta(meta, scheduler_output)
 
@@ -815,6 +860,49 @@ class NixlBaseConnectorScheduler:
 
         return meta
 
+    def _release_orphaned_pins(self, meta: NixlConnectorMetadata) -> None:
+        """Free the pins of lookups that were cancelled before their hit arrived.
+
+        Each is released with a notify-only recv, the same message a consumer
+        sends when its local prefix hit already covers the remote blocks: the
+        worker handshakes with the peer if needed and sends ``"<pin_id>:<n>"``.
+        It never reports the recv back, because it has neither local blocks nor
+        ``awaiting_kvs`` and so no entry in the worker's recv metadata. A pin
+        that cannot be released this way is left to its lease.
+        """
+        if self._lookup_client is None:
+            return
+        stats = self.peer_lookup_stats
+        for host, port, reply in self._lookup_client.take_orphaned_pins():
+            endpoint = self._peer_endpoints.get((host, port))
+            if endpoint is None or endpoint.tp_size is None:
+                # Without the peer's TP size a handshake could be built wrong.
+                stats.orphans_unreleased += 1
+                logger.warning(
+                    "Peer pin %s on %s:%s is orphaned and cannot be released "
+                    "(peer topology unknown); it expires with its lease.",
+                    reply.remote_request_id,
+                    host,
+                    port,
+                )
+                continue
+            stats.orphans_released += 1
+            meta.add_new_req_to_recv(
+                request_id=f"peer-release-{uuid.uuid4().hex}",
+                local_block_ids=[],
+                kv_transfer_params=dict(
+                    remote_block_ids=reply.remote_block_ids,
+                    remote_engine_id=endpoint.engine_id,
+                    remote_request_id=reply.remote_request_id,
+                    remote_host=host,
+                    remote_port=port,
+                    tp_size=endpoint.tp_size,
+                    dcp_size=endpoint.dcp_size,
+                    pp_size=endpoint.pp_size,
+                ),
+                awaiting_kvs=False,
+            )
+
     def update_connector_output(self, connector_output: "KVConnectorOutput") -> None:
         """Stop heartbeating for requests whose KV transfer completed."""
         if self._peer_pins is not None:
@@ -834,6 +922,7 @@ class NixlBaseConnectorScheduler:
             not self._lookup.inbox.empty()
             or not self._lookup.outbox.empty()
             or (self._peer_pins is not None and self._peer_pins.has_pending_work())
+            or (self._lookup_client is not None and self._lookup_client.has_in_flight())
         )
 
     ############################################################
@@ -842,7 +931,7 @@ class NixlBaseConnectorScheduler:
 
     def get_num_new_matched_tokens(
         self, request: "Request", num_computed_tokens: int
-    ) -> tuple[int, bool]:
+    ) -> tuple[int | None, bool]:
         raise NotImplementedError
 
     def update_state_after_alloc(
