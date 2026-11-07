@@ -12,7 +12,7 @@ and worker classes; the connector classes here only forward calls.
 * ``NixlConnector`` – backward-compatible alias for :class:`NixlPullConnector`.
 """
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING, Any
 
 import torch
@@ -328,6 +328,10 @@ class NixlBaseConnector(KVConnectorBase_V1, SupportsHMA):
         super().bind_kv_cache_manager(kv_cache_manager)
         if self.connector_scheduler is not None:
             self.connector_scheduler.bind_kv_cache_manager(kv_cache_manager)
+
+    def set_engine_wakeup(self, callback: Callable[[], None]) -> None:
+        if self.connector_scheduler is not None:
+            self.connector_scheduler.set_engine_wakeup(callback)
 
     def take_events(self) -> Iterable["KVCacheEvent"]:
         # The core calls this exactly once per update_from_output, i.e. once

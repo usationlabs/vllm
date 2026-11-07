@@ -16,6 +16,9 @@ from tests.v1.core.test_prefix_pin import (
     tokens,
 )
 from vllm.config import CacheConfig
+from vllm.distributed.kv_transfer.kv_connector.v1.nixl.base_scheduler import (
+    PeerLookupChannel,
+)
 from vllm.distributed.kv_transfer.kv_connector.v1.nixl.connector import (
     NixlPullConnector,
 )
@@ -468,9 +471,12 @@ def make_wired_scheduler(manager: KVCacheManager, **overrides):
     sched._peer_lookup_enabled = overrides.get("peer_lookup", True)
     sched._peer_pin_max_fraction = 1.0
     sched._peer_pin_min_free_fraction = 0.0
+    sched._peer_pin_serve_timeout = overrides.get("serve_timeout", 5.0)
     sched._peer_pins = None
     sched._compatibility_hash = None
     sched._registration_generation = 0
+    sched._lookup = PeerLookupChannel()
+    sched._lookup.enabled = sched._peer_lookup_enabled
     return sched
 
 
@@ -505,7 +511,9 @@ def test_connector_wiring_end_to_end():
     assert len(meta.reqs_to_send) == 1
     (pin_id,) = meta.reqs_to_send
     assert meta.reqs_in_batch == {pin_id}
-    ((_, reply),) = sched.take_peer_lookup_replies()
+    # build_connector_meta handed the reply to the listener's outbox.
+    assert sched.take_peer_lookup_replies() == []
+    _, reply = sched._lookup.outbox.get_nowait()
     assert reply.remote_request_id == pin_id
     assert reply.remote_blocks_expiry_time == meta.reqs_to_send[pin_id]
     assert not connector.has_pending_push_work()

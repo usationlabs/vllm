@@ -1374,6 +1374,16 @@ class EngineCoreProc(EngineCore):
                 internal_dp_balancing,
             )
 
+            # Let a connector's background threads wake this loop when idle
+            # (the in-process EngineCore has none; it serves them next step).
+            connector = getattr(self.scheduler, "connector", None)
+            if connector is not None:
+                connector.set_engine_wakeup(
+                    lambda: self.input_queue.put_nowait(
+                        (EngineCoreRequestType.WAKEUP, None)
+                    )
+                )
+
             # Initialize fault tolerance settings.
             self.enable_fault_tolerance = (
                 vllm_config.parallel_config.enable_fault_tolerance

@@ -494,6 +494,20 @@ class KVConnectorBase_V1(ABC):
     # Scheduler-side methods
     # ==============================
 
+    def set_engine_wakeup(self, callback: Callable[[], None]) -> None:
+        """Receive a callback that wakes the engine's busy loop when it is idle.
+
+        The engine passes a thread-safe callback. Connectors with background
+        threads that create scheduler work (for example a listener that queues
+        requests for the scheduler to serve) call it after queuing, together
+        with ``has_pending_push_work`` returning True. The in-process
+        (non-busy-loop) engine core passes none; such work is then picked up on
+        its next step.
+
+        Default: no-op.
+        """
+        return None
+
     def bind_kv_cache_manager(self, kv_cache_manager: "KVCacheManager") -> None:
         """Bind the scheduler's cache manager after it has been constructed."""
         self._kv_cache_manager = kv_cache_manager

@@ -54,7 +54,7 @@ _MISS_REASONS = {
 }
 
 
-def _miss_reply(reason: PeerMissReason) -> LookupPinReply:
+def miss_reply(reason: PeerMissReason) -> LookupPinReply:
     return LookupPinReply(
         hit_tokens=0,
         remote_block_ids=[],
@@ -71,6 +71,7 @@ class _PendingPin:
     # The pin may be exposed once this many steps have been processed.
     fence: int
     lease: float
+    created_at: float
 
 
 @dataclass
@@ -104,12 +105,16 @@ class PeerPinServer:
         max_pinned_fraction: float,
         min_free_fraction: float,
         clock: Callable[[], float] = time.perf_counter,
+        max_pending_seconds: float | None = None,
     ):
         self._manager = kv_cache_manager
         self._block_size = block_size
         self._hash_algo = hash_algo
         self._lease_duration = lease_duration
         self._clock = clock
+        # A pin that has not shipped by then is released and refused, so a
+        # stalled step cannot hold blocks for a peer that gave up waiting.
+        self._max_pending_seconds = max_pending_seconds
         pool = kv_cache_manager.block_pool
         self._num_gpu_blocks: int = pool.num_gpu_blocks
         self._max_pinned_blocks = int(max_pinned_fraction * self._num_gpu_blocks)
@@ -185,12 +190,12 @@ class PeerPinServer:
         mismatch = self._identity_mismatch(request)
         if mismatch is not None:
             logger.debug("Peer lookup refused: %s", mismatch)
-            self._ready.append((token, _miss_reply(PeerMissReason.IDENTITY_MISMATCH)))
+            self._ready.append((token, miss_reply(PeerMissReason.IDENTITY_MISMATCH)))
             return
 
         budget = self._max_pinned_blocks - self._manager.num_pinned_blocks
         if budget <= 0:
-            self._ready.append((token, _miss_reply(PeerMissReason.PIN_REFUSED)))
+            self._ready.append((token, miss_reply(PeerMissReason.PIN_REFUSED)))
             return
 
         pin = self._manager.lookup_and_pin(
@@ -201,7 +206,7 @@ class PeerPinServer:
         reason = _MISS_REASONS[pin.miss]
         if pin.num_blocks == 0:
             self._manager.release_pin(pin)
-            self._ready.append((token, _miss_reply(reason)))
+            self._ready.append((token, miss_reply(reason)))
             return
 
         pin_id = f"{PEER_PIN_ID_PREFIX}{uuid.uuid4().hex}"
@@ -219,6 +224,7 @@ class PeerPinServer:
             pin_id=pin_id,
             fence=self._steps_scheduled + 1,
             lease=lease,
+            created_at=self._clock(),
         )
 
     # ------------------------------------------------------------------
@@ -239,6 +245,23 @@ class PeerPinServer:
         """
         self._check_thread()
         sends: dict[str, float] = {}
+        if self._max_pending_seconds is not None and self._pending:
+            now = self._clock()
+            for pin_id in [
+                pid
+                for pid, p in self._pending.items()
+                if now - p.created_at > self._max_pending_seconds
+            ]:
+                timed_out = self._pending.pop(pin_id)
+                self._manager.release_pin(timed_out.pin)
+                logger.warning(
+                    "Peer pin %s was not shipped within %.1fs; releasing it.",
+                    pin_id,
+                    self._max_pending_seconds,
+                )
+                self._ready.append(
+                    (timed_out.token, miss_reply(PeerMissReason.PIN_REFUSED))
+                )
         for pin_id in [
             pid for pid, p in self._pending.items() if p.fence <= self._steps_processed
         ]:
@@ -303,7 +326,7 @@ class PeerPinServer:
                 pending = self._pending.pop(pending_id)
                 self._manager.release_pin(pin)
                 self._ready.append(
-                    (pending.token, _miss_reply(PeerMissReason.NOT_CACHED))
+                    (pending.token, miss_reply(PeerMissReason.NOT_CACHED))
                 )
                 continue
             if any(s.pin is pin for s in self._shipped.values()):
