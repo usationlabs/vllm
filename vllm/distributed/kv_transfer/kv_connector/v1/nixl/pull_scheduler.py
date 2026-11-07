@@ -260,6 +260,12 @@ class NixlPullConnectorScheduler(NixlBaseConnectorScheduler):
                 )
                 return self._peer_miss(request, params, "bad_reply")
 
+            logger.debug(
+                "Peer lookup_pin hit for %s: %d tokens under pin %s",
+                request.request_id,
+                reply.hit_tokens,
+                reply.remote_request_id,
+            )
             stats = self.peer_lookup_stats
             if reply.hit_tokens == (request.num_prompt_tokens // self.block_size) * (
                 self.block_size

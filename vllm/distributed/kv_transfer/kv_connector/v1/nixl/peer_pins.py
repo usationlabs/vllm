@@ -211,6 +211,7 @@ class PeerPinServer:
         reason = _MISS_REASONS[pin.miss]
         if pin.num_blocks == 0:
             self._manager.release_pin(pin)
+            logger.debug("Peer lookup_pin missed: %s", reason.value)
             self._ready.append((token, miss_reply(reason)))
             return
 
@@ -230,6 +231,12 @@ class PeerPinServer:
             fence=self._steps_scheduled + 1,
             lease=lease,
             created_at=self._clock(),
+        )
+        logger.debug(
+            "Peer lookup_pin pinned %d of %d blocks as %s",
+            pin.num_blocks,
+            len(request.block_hashes),
+            pin_id,
         )
 
     # ------------------------------------------------------------------
