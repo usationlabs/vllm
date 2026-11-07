@@ -159,8 +159,10 @@ class PrefixPin:
     that exposes them to a reader outside this engine:
 
     - A block is cached when the step that computes it is scheduled, not when
-      that step finishes. Expose the block ids only after every step scheduled
-      before the pin has finished on the device.
+      that step finishes. With async scheduling, batch N is scheduled while
+      batch N-1 runs, so its blocks are cached (and their KV events sent when
+      N-1 finishes) before N has run. Expose the block ids only after every
+      step scheduled before the pin has finished on the device.
     - A block whose KV load failed can be recomputed in place or invalidated
       while pinned. ``KVCacheManager.pins_holding`` finds the pins to revoke.
 

@@ -23,9 +23,14 @@ from vllm.distributed.kv_transfer.kv_connector.v1.base import (
 from vllm.distributed.kv_transfer.kv_connector.v1.nixl.metadata import (
     GET_META_MSG,
     HeartbeatInfo,
+    LookupPinReply,
+    LookupPinRequest,
     NixlConnectorMetadata,
     NixlHandshakePayload,
     ReqId,
+)
+from vllm.distributed.kv_transfer.kv_connector.v1.nixl.peer_pins import (
+    PeerPinServer,
 )
 from vllm.distributed.kv_transfer.kv_connector.v1.nixl.utils import zmq_ctx
 from vllm.logger import init_logger
@@ -41,7 +46,7 @@ from vllm.v1.kv_cache_interface import (
 
 if TYPE_CHECKING:
     from vllm.config import VllmConfig
-    from vllm.v1.core.kv_cache_manager import KVCacheBlocks
+    from vllm.v1.core.kv_cache_manager import KVCacheBlocks, KVCacheManager
     from vllm.v1.kv_cache_interface import KVCacheConfig
     from vllm.v1.outputs import KVConnectorOutput
     from vllm.v1.request import Request
@@ -171,6 +176,17 @@ class NixlBaseConnectorScheduler:
             )
         )
 
+        # Peer prefix lookup-and-pin (pull mode only): lets other engines ask
+        # whether this one caches a prefix and pin it for a remote read.
+        extra = vllm_config.kv_transfer_config.get_from_extra_config
+        self._peer_lookup_enabled = bool(extra("peer_lookup", False))
+        self._peer_pin_max_fraction = float(extra("peer_pin_max_fraction", 0.25))
+        self._peer_pin_min_free_fraction = float(
+            extra("peer_pin_min_free_fraction", 0.05)
+        )
+        self._peer_pins: PeerPinServer | None = None
+        self._compatibility_hash: str | None = None
+
         # Bi-directional KV transfer feature supports KV block
         # transfers from D node to P node
         self.is_bidirectional_kv_xfer_enabled = (
@@ -192,6 +208,41 @@ class NixlBaseConnectorScheduler:
                 self.kv_recompute_threshold,
                 self.decoder_kv_blocks_ttl,
             )
+
+    def bind_kv_cache_manager(self, kv_cache_manager: "KVCacheManager") -> None:
+        """Create the peer pin server once the scheduler's cache manager exists."""
+        if not self._peer_lookup_enabled or self._TRANSFER_MODE != "pull":
+            return
+        if not kv_cache_manager.supports_prefix_pinning():
+            logger.info(
+                "Peer prefix lookup is enabled but this KV cache layout cannot "
+                "pin prefixes by hash; every lookup will be refused."
+            )
+        self._peer_pins = PeerPinServer(
+            kv_cache_manager,
+            block_size=self.block_size,
+            hash_algo=self.vllm_config.cache_config.prefix_caching_hash_algo,
+            lease_duration=self._kv_lease_duration,
+            max_pinned_fraction=self._peer_pin_max_fraction,
+            min_free_fraction=self._peer_pin_min_free_fraction,
+        )
+        if self._compatibility_hash is not None:
+            self._peer_pins.set_compatibility_hash(self._compatibility_hash)
+
+    def on_step_processed(self) -> None:
+        """One scheduled step's output has been processed."""
+        if self._peer_pins is not None:
+            self._peer_pins.on_step_processed()
+
+    def serve_peer_lookup(self, token: Any, request: LookupPinRequest) -> None:
+        """Scheduler thread only. The reply comes from take_peer_lookup_replies."""
+        assert self._peer_pins is not None
+        self._peer_pins.serve(token, request)
+
+    def take_peer_lookup_replies(self) -> list[tuple[Any, LookupPinReply]]:
+        if self._peer_pins is None:
+            return []
+        return self._peer_pins.take_ready_replies()
 
     def shutdown(self):
         self._stop_event.set()
@@ -320,6 +371,10 @@ class NixlBaseConnectorScheduler:
                 # Peers must handshake again to load the changed registration.
                 self._registration_generation += 1
             self._handshake_data[(pp_rank, tp_rank)] = encoded
+            # All ranks share the compatibility hash.
+            self._compatibility_hash = rank_metadata.compatibility_hash
+            if self._peer_pins is not None:
+                self._peer_pins.set_compatibility_hash(rank_metadata.compatibility_hash)
             logger.debug(
                 "PP rank %d, TP rank %d: encoded NixlHandshakePayload size: %s bytes",
                 pp_rank,
@@ -493,6 +548,8 @@ class NixlBaseConnectorScheduler:
         scheduler_output: SchedulerOutput,
     ) -> KVConnectorMetadata:
         meta = NixlConnectorMetadata()
+        if self._peer_pins is not None:
+            self._peer_pins.on_step_scheduled()
 
         # Loop through scheduled reqs and convert to ReqMeta.
         for req_id, (
@@ -512,6 +569,13 @@ class NixlBaseConnectorScheduler:
 
         if self.use_host_buffer:
             self._build_save_meta(meta, scheduler_output)
+
+        if self._peer_pins is not None:
+            # Ship pins together with the step that carries their reply, as a
+            # finished prefill's send; the worker only tracks ids in both.
+            new_sends = self._peer_pins.take_new_sends()
+            self._reqs_need_send.update(new_sends)
+            self._reqs_in_batch.update(new_sends)
 
         meta.reqs_to_send = self._reqs_need_send
         # Clock reference for reqs_to_send: deadlines above are in this
@@ -538,11 +602,18 @@ class NixlBaseConnectorScheduler:
 
     def update_connector_output(self, connector_output: "KVConnectorOutput") -> None:
         """Stop heartbeating for requests whose KV transfer completed."""
+        if self._peer_pins is not None:
+            # Pin ids are not requests: keep them from the scheduler's loop.
+            if connector_output.finished_sending:
+                connector_output.finished_sending = self._peer_pins.on_finished_sending(
+                    set(connector_output.finished_sending)
+                )
+            self._peer_pins.on_invalid_blocks(connector_output.invalid_block_ids)
         for req_id in connector_output.finished_recving or ():
             self._stop_heartbeat(req_id)
 
     def has_pending_push_work(self) -> bool:
-        return False
+        return self._peer_pins is not None and self._peer_pins.has_pending_work()
 
     ############################################################
     # Abstract methods that subclasses must implement
