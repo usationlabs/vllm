@@ -35,6 +35,9 @@ from vllm.distributed.kv_transfer.kv_connector.v1.nixl.metadata import (
     PeerMissReason,
     ReqId,
 )
+from vllm.distributed.kv_transfer.kv_connector.v1.nixl.peer_lookup_client import (
+    PeerLookupClient,
+)
 from vllm.distributed.kv_transfer.kv_connector.v1.nixl.peer_pins import (
     PeerPinServer,
     miss_reply,
@@ -125,6 +128,10 @@ class NixlBaseConnectorScheduler:
     # pull (READ) producer from a push (WRITE) one. Overridden by the push
     # scheduler.
     _TRANSFER_MODE: str = "pull"
+
+    # Class-level defaults so a scheduler built without __init__ can shut down.
+    _lookup_client: PeerLookupClient | None = None
+    _peer_lookup_timeout: float = 2.0
 
     def __init__(
         self,
@@ -249,6 +256,8 @@ class NixlBaseConnectorScheduler:
             extra("peer_pin_min_free_fraction", 0.05)
         )
         self._peer_pin_serve_timeout = float(extra("peer_lookup_serve_timeout", 5.0))
+        self._peer_lookup_timeout = float(extra("peer_lookup_timeout", 2.0))
+        self._lookup_client: PeerLookupClient | None = None
         self._peer_pins: PeerPinServer | None = None
         self._compatibility_hash: str | None = None
         self._lookup = PeerLookupChannel()
@@ -343,7 +352,16 @@ class NixlBaseConnectorScheduler:
         if replies:
             self._lookup.wake()
 
+    def _get_lookup_client(self) -> PeerLookupClient:
+        """The consumer-side lookup client, created on first use."""
+        if self._lookup_client is None:
+            self._lookup_client = PeerLookupClient(self._peer_lookup_timeout)
+        return self._lookup_client
+
     def shutdown(self):
+        if self._lookup_client is not None:
+            self._lookup_client.close()
+            self._lookup_client = None
         self._stop_event.set()
         if self._nixl_handshake_listener_t is not None:
             self._nixl_handshake_listener_t.join()
