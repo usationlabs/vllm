@@ -389,8 +389,13 @@ def test_has_pending_work_transitions():
     ship(server)
     assert server.has_pending_work()  # reply ready, not taken
     server.take_ready_replies()
-    assert not server.has_pending_work()  # shipped pins alone do not count
+    # A shipped pin keeps the engine stepping: the worker reports its
+    # read-done notification or lease expiry only from inside a step.
+    assert server.has_pending_work()
     assert server.num_shipped == 1
+    (pin_id,) = server._shipped
+    assert server.on_finished_sending({pin_id}) == set()
+    assert not server.has_pending_work()
 
 
 def test_miss_reply_keeps_engine_alive_until_taken():
@@ -516,7 +521,8 @@ def test_connector_wiring_end_to_end():
     _, reply = sched._lookup.outbox.get_nowait()
     assert reply.remote_request_id == pin_id
     assert reply.remote_blocks_expiry_time == meta.reqs_to_send[pin_id]
-    assert not connector.has_pending_push_work()
+    # Shipped, not yet read: the engine must keep stepping to hear about it.
+    assert connector.has_pending_push_work()
 
     # Read done: the pin id is stripped, other ids are untouched.
     from vllm.v1.outputs import KVConnectorOutput
@@ -525,6 +531,7 @@ def test_connector_wiring_end_to_end():
     connector.update_connector_output(out)
     assert out.finished_sending == {"req-1"}
     assert manager.num_pinned_blocks == 0
+    assert not connector.has_pending_push_work()
 
     none_out = KVConnectorOutput()
     connector.update_connector_output(none_out)

@@ -104,7 +104,8 @@ def test_lookup_round_trip(served):
     assert len(reply.remote_block_ids[0]) == len(hashes)
     (pin_id,) = meta.reqs_to_send
     assert reply.remote_request_id == pin_id
-    assert not connector.has_pending_push_work()
+    # The shipped pin keeps the engine stepping until its read is reported.
+    assert connector.has_pending_push_work()
 
 
 def test_get_meta_survives_bad_messages(served):
@@ -167,9 +168,9 @@ def test_wakeup_called_and_pending_work_tracks_inbox(served):
         cycle(connector)
         cycle(connector)
         recv_reply(sock)
-    # Served and flushed, but the pin is shipped, not pending.
+    # Served and flushed: only the shipped pin keeps the engine stepping.
     assert sched._lookup.inbox.empty() and sched._lookup.outbox.empty()
-    assert not connector.has_pending_push_work()
+    assert connector.has_pending_push_work()
 
 
 def test_idle_engine_answers_within_two_cycles(served):

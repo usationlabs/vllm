@@ -353,6 +353,9 @@ class PeerPinServer:
     def has_pending_work(self) -> bool:
         """Whether the engine must keep stepping for this server.
 
-        Shipped pins alone do not: like stock sends, the worker reports them.
+        Shipped pins count: the worker reports a pin's read-done notification
+        or lease expiry only from inside a step, so an idle engine would hold
+        the pin forever. Stock sends stay alive the same way, as finished
+        requests still in ``Scheduler.requests``.
         """
-        return bool(self._pending or self._ready)
+        return bool(self._pending or self._ready or self._shipped)
