@@ -73,5 +73,5 @@ def kv_lease_extension(kv_lease_duration: int) -> int:
 
 
 def get_base_request_id(request_id: str) -> str:
-    """Strip the per-request ``-<8 hex>`` randomization suffix, if present."""
+    """Strip the per-request `-<8 hex>` randomization suffix, if present."""
     return _RANDOM_SUFFIX_RE.sub("", request_id)
