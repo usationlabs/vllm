@@ -8,7 +8,7 @@ result on later steps, and cancels it if the request goes away.
 
 Every lookup gets its own REQ socket. The producer's replies are not FIFO (a
 miss is answered at once while an earlier hit waits for the producer's step
-fence) and a ``LookupPinReply`` carries no correlation id, so a socket shared
+fence) and a `LookupPinReply` carries no correlation id, so a socket shared
 per peer could hand a reply to the wrong lookup. A REQ socket per in-flight
 lookup correlates by construction and needs no wire change. The cost is one
 TCP connect per lookup.
@@ -69,10 +69,10 @@ def _holds_pin(reply: LookupPinReply | None) -> bool:
 class PeerLookupClient:
     """Asynchronous lookups against peers' side-channel ROUTER sockets.
 
-    ``submit``, ``poll``, ``cancel``, ``take_orphaned_pins``, ``has_in_flight``
-    and ``close`` are for the scheduler thread and never block on the network.
+    `submit`, `poll`, `cancel`, `take_orphaned_pins`, `has_in_flight`
+    and `close` are for the scheduler thread and never block on the network.
     The background thread owns every socket and the context; the two sides
-    share only the job queue, the wake pipe and the state guarded by ``_lock``.
+    share only the job queue, the wake pipe and the state guarded by `_lock`.
     """
 
     def __init__(
@@ -107,7 +107,7 @@ class PeerLookupClient:
     # ---- scheduler thread -------------------------------------------------
 
     def submit(self, key: str, host: str, port: int, request: LookupPinRequest) -> None:
-        """Start a lookup. A no-op while ``key`` is in flight or untaken."""
+        """Start a lookup. A no-op while `key` is in flight or untaken."""
         frame = msgspec.msgpack.encode(
             (LOOKUP_PIN_MSG, msgspec.msgpack.encode(request))
         )
@@ -132,9 +132,9 @@ class PeerLookupClient:
         """The request went away; discard its lookup.
 
         A reply that is, or later turns out to be, a hit leaves a pin on the
-        producer, which is recorded for ``take_orphaned_pins``. A lookup whose
+        producer, which is recorded for `take_orphaned_pins`. A lookup whose
         socket is closed before its reply is counted in
-        ``num_lost_after_cancel``: the producer may hold a pin until its lease
+        `num_lost_after_cancel`: the producer may hold a pin until its lease
         ends.
         """
         with self._lock:
@@ -150,7 +150,7 @@ class PeerLookupClient:
         self._wake()
 
     def take_orphaned_pins(self) -> list[tuple[str, int, LookupPinReply]]:
-        """Hits nobody will use: ``(host, port, reply)`` to release on the peer."""
+        """Hits nobody will use: `(host, port, reply)` to release on the peer."""
         with self._lock:
             orphans, self._orphans = self._orphans, []
         return orphans
@@ -228,7 +228,7 @@ class PeerLookupClient:
             self._complete(job, LookupResult(None, "send_failed"))
 
     def _finish(self, sock, active, poller, result: LookupResult | None) -> None:
-        """Close ``sock``; deliver ``result`` unless it is None (cancelled)."""
+        """Close `sock`; deliver `result` unless it is None (cancelled)."""
         entry = active.pop(sock)
         with contextlib.suppress(Exception):
             poller.unregister(sock)

@@ -75,7 +75,7 @@ def tokens(num_blocks: int, start: int = 0) -> list[int]:
 
 
 def compute_and_free(manager: KVCacheManager, request: Request) -> None:
-    """Prefill ``request`` fully (caching its full blocks), then free it."""
+    """Prefill `request` fully (caching its full blocks), then free it."""
     computed, num_computed, _ = manager.get_computed_blocks(request)
     blocks = manager.allocate_slots(
         request, request.num_tokens - num_computed, num_computed, computed

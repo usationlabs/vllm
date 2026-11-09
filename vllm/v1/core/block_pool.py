@@ -180,7 +180,7 @@ class BlockPool:
         self._max_evicted_hashes = 0
 
     def enable_evicted_hash_tracking(self, max_entries: int) -> None:
-        """Remember up to ``max_entries`` of the most recently evicted hashes.
+        """Remember up to `max_entries` of the most recently evicted hashes.
 
         A hash leaves the record when it is cached again, when newer evictions
         push it out, or when the prefix cache is reset.
@@ -193,9 +193,9 @@ class BlockPool:
             self._evicted_hashes.popitem(last=False)
 
     def was_evicted(self, block_hash: BlockHash, kv_cache_group_id: int) -> bool:
-        """Whether ``block_hash`` was recently evicted from the prefix cache.
+        """Whether `block_hash` was recently evicted from the prefix cache.
 
-        Always False unless ``enable_evicted_hash_tracking`` was called. A hash that
+        Always False unless `enable_evicted_hash_tracking` was called. A hash that
         aged out of the record also reads False.
         """
         if self._evicted_hashes is None:
@@ -801,7 +801,7 @@ class BlockPool:
 
         Args:
             block: The block to evict.
-            record_eviction: Remember the hashes for ``was_evicted``. False
+            record_eviction: Remember the hashes for `was_evicted`. False
                 when the block's contents are invalid rather than displaced.
 
         Returns:

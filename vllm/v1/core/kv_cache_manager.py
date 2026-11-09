@@ -141,7 +141,7 @@ class KVCacheBlocks:
 
 
 class PrefixPinMiss(enum.Enum):
-    """Why ``KVCacheManager.lookup_and_pin`` stopped before the last hash."""
+    """Why `KVCacheManager.lookup_and_pin` stopped before the last hash."""
 
     NONE = "none"  # Every requested block was pinned.
     NOT_CACHED = "not_cached"  # The first missing hash was never cached here.
@@ -155,7 +155,7 @@ class PrefixPin:
     """Blocks of a cached prefix held for a reader that is not a request.
 
     The blocks stay allocated, so they cannot be evicted or handed to another
-    request, until ``KVCacheManager.release_pin``. Two caveats for a caller
+    request, until `KVCacheManager.release_pin`. Two caveats for a caller
     that exposes them to a reader outside this engine:
 
     - A block is cached when the step that computes it is scheduled, not when
@@ -164,9 +164,9 @@ class PrefixPin:
       N-1 finishes) before N has run. Expose the block ids only after every
       step scheduled before the pin has finished on the device.
     - A block whose KV load failed can be recomputed in place or invalidated
-      while pinned. ``KVCacheManager.pins_holding`` finds the pins to revoke.
+      while pinned. `KVCacheManager.pins_holding` finds the pins to revoke.
 
-    Treat ``blocks`` as read-only.
+    Treat `blocks` as read-only.
     """
 
     # Per KV cache group, the pinned blocks in prefix order.
@@ -725,7 +725,7 @@ class KVCacheManager:
         self.coordinator.free(request.request_id)
 
     def supports_prefix_pinning(self) -> bool:
-        """Whether ``lookup_and_pin`` can pin prefixes of this cache layout.
+        """Whether `lookup_and_pin` can pin prefixes of this cache layout.
 
         Only a single full-attention group without context parallelism: there a
         prefix of N full blocks is exactly the KV of the first N blocks'
@@ -745,17 +745,17 @@ class KVCacheManager:
         max_blocks: int | None = None,
         min_free_blocks: int = 0,
     ) -> PrefixPin:
-        """Pin the longest cached run of ``block_hashes`` from the start.
+        """Pin the longest cached run of `block_hashes` from the start.
 
-        Unlike ``get_computed_blocks`` this serves a reader outside this engine,
+        Unlike `get_computed_blocks` this serves a reader outside this engine,
         so nothing is scheduled or computed, the hit is not capped below the
         last token and no block is dropped for EAGLE: the reader recomputes
         what it needs. Call only from the scheduler thread, and eventually
-        ``release_pin`` the result, even when it pins nothing.
+        `release_pin` the result, even when it pins nothing.
 
         Args:
             block_hashes: Prefix-cache hashes of consecutive full blocks,
-                starting at the first block, chained as ``Request.block_hashes``.
+                starting at the first block, chained as `Request.block_hashes`.
             max_blocks: Pin at most this many blocks; the hit stops there.
             min_free_blocks: Refuse (pin nothing) if the pin would leave fewer
                 free blocks than this, e.g. the admission watermark.
@@ -811,7 +811,7 @@ class KVCacheManager:
         return pin
 
     def release_pin(self, pin: PrefixPin) -> None:
-        """Release the blocks of a ``lookup_and_pin`` result. Idempotent."""
+        """Release the blocks of a `lookup_and_pin` result. Idempotent."""
         if pin.released:
             return
         pin.released = True
@@ -823,7 +823,7 @@ class KVCacheManager:
             self.block_pool.free_blocks(reversed(group))
 
     def pins_holding(self, block_ids: set[int]) -> list[PrefixPin]:
-        """Live pins that hold any of ``block_ids``, e.g. blocks whose KV load
+        """Live pins that hold any of `block_ids`, e.g. blocks whose KV load
         failed. The caller revokes them and tells their readers."""
         return [
             pin

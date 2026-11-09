@@ -3,8 +3,8 @@
 """Producer-side lookup-and-pin for peer prefix reads over NIXL.
 
 A peer asks "do you hold this prefix?" by block hash. A hit is pinned in the
-KV cache manager (``KVCacheManager.lookup_and_pin``) and handed out as a pseudo
-request: it gets an id, a lease and an entry in ``reqs_to_send``, exactly like
+KV cache manager (`KVCacheManager.lookup_and_pin`) and handed out as a pseudo
+request: it gets an id, a lease and an entry in `reqs_to_send`, exactly like
 a finished prefill, so the worker's existing read-done and lease-expiry
 machinery reports when the blocks can be released.
 
@@ -55,7 +55,7 @@ _MISS_REASONS = {
 
 
 def hashes_not_reproducible(hash_algo: str) -> bool:
-    """Whether block hashes of ``hash_algo`` differ between processes here."""
+    """Whether block hashes of `hash_algo` differ between processes here."""
     return (
         hash_algo in _PROCESS_SEEDED_HASH_ALGOS
         and os.environ.get("PYTHONHASHSEED") is None
@@ -91,17 +91,17 @@ class _ShippedPin:
 class PeerPinServer:
     """Answers peer lookups by pinning cached prefixes until the peer is done.
 
-    Lifecycle of a hit: ``serve`` pins it and holds it as pending. A block is
+    Lifecycle of a hit: `serve` pins it and holds it as pending. A block is
     registered in the prefix cache when its step is scheduled, before the GPU
     wrote its KV, and a remote RDMA read is not ordered against that write. So
-    the pin is only exposed (``take_new_sends`` ships it and readies its reply)
+    the pin is only exposed (`take_new_sends` ships it and readies its reply)
     once every step scheduled before the lookup has been processed. It then
-    lives in ``reqs_to_send`` like any finished prefill, until the worker
-    reports it in ``finished_sending`` (read done, or lease expiry).
+    lives in `reqs_to_send` like any finished prefill, until the worker
+    reports it in `finished_sending` (read done, or lease expiry).
 
-    Step accounting: the owner calls ``on_step_scheduled`` once per
-    ``build_connector_meta`` and ``on_step_processed`` once per
-    ``update_from_output``. These run once per scheduled step, in order.
+    Step accounting: the owner calls `on_step_scheduled` once per
+    `build_connector_meta` and `on_step_processed` once per
+    `update_from_output`. These run once per scheduled step, in order.
     """
 
     def __init__(
@@ -190,7 +190,7 @@ class PeerPinServer:
         return None
 
     def serve(self, token: Any, request: LookupPinRequest) -> None:
-        """Handle one lookup. The reply comes out of ``take_ready_replies``."""
+        """Handle one lookup. The reply comes out of `take_ready_replies`."""
         self._check_thread()
         mismatch = self._identity_mismatch(request)
         if mismatch is not None:
@@ -249,9 +249,9 @@ class PeerPinServer:
         self._steps_processed += 1
 
     def take_new_sends(self) -> dict[str, float]:
-        """Ship the pins whose fence has passed; returns ``{pin_id: expiry}``.
+        """Ship the pins whose fence has passed; returns `{pin_id: expiry}`.
 
-        The caller adds them to ``reqs_to_send`` and ``reqs_in_batch`` of the
+        The caller adds them to `reqs_to_send` and `reqs_in_batch` of the
         metadata it is building, so the worker learns each id in the same step
         its reply leaves.
         """
@@ -306,7 +306,7 @@ class PeerPinServer:
 
     # ------------------------------------------------------------------
     def on_finished_sending(self, ids: set[str]) -> set[str]:
-        """Release the pins named in ``ids``; returns ``ids`` without them."""
+        """Release the pins named in `ids`; returns `ids` without them."""
         self._check_thread()
         # Match on the pins this server shipped, not on the id prefix: request
         # ids can come from clients, and one that happens to start with the
@@ -356,6 +356,6 @@ class PeerPinServer:
         Shipped pins count: the worker reports a pin's read-done notification
         or lease expiry only from inside a step, so an idle engine would hold
         the pin forever. Stock sends stay alive the same way, as finished
-        requests still in ``Scheduler.requests``.
+        requests still in `Scheduler.requests`.
         """
         return bool(self._pending or self._ready or self._shipped)

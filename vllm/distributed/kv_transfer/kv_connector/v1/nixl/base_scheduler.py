@@ -104,8 +104,8 @@ class PeerEndpoint:
 class PeerLookupChannel:
     """Hand-off between the side-channel listener thread and the scheduler.
 
-    The listener puts decoded lookups on ``inbox``; the scheduler thread serves
-    them and puts ``(identity, reply)`` on ``outbox``, then calls ``wake`` so the
+    The listener puts decoded lookups on `inbox`; the scheduler thread serves
+    them and puts `(identity, reply)` on `outbox`, then calls `wake` so the
     listener, which owns the ROUTER socket, sends them. Nothing here touches
     the block pool or the pin server.
     """
@@ -420,7 +420,7 @@ class NixlBaseConnectorScheduler:
         self._register_heartbeat(request.request_id, params)
 
     def _register_heartbeat(self, req_id: ReqId, params: dict[str, Any]) -> None:
-        """Start lease-renewal heartbeats for the remote blocks named in ``params``."""
+        """Start lease-renewal heartbeats for the remote blocks named in `params`."""
         # Only track if all required remote fields are present.
         remote_engine_id = params.get("remote_engine_id")
         remote_request_id = params.get("remote_request_id")
@@ -575,12 +575,12 @@ class NixlBaseConnectorScheduler:
 
         Two messages arrive on the ROUTER socket, both msgpack:
 
-        - ``(GET_META_MSG, pp_rank, tp_rank)``: answered with the handshake
+        - `(GET_META_MSG, pp_rank, tp_rank)`: answered with the handshake
           payload and this process's clock, unchanged.
-        - ``(LOOKUP_PIN_MSG, <encoded LookupPinRequest>)``: handed to the
-          scheduler thread through ``lookup.inbox``; the reply comes back
-          through ``lookup.outbox`` and is sent from here as
-          ``(identity, b"", <encoded LookupPinReply>)``.
+        - `(LOOKUP_PIN_MSG, <encoded LookupPinRequest>)`: handed to the
+          scheduler thread through `lookup.inbox`; the reply comes back
+          through `lookup.outbox` and is sent from here as
+          `(identity, b"", <encoded LookupPinReply>)`.
 
         This thread owns the socket and never touches the block pool or the
         pin server. A malformed or unknown message is logged and skipped: it
@@ -590,7 +590,7 @@ class NixlBaseConnectorScheduler:
         message, since a bump would fail the handshake of every mixed-version
         pair, stock P/D included. Listeners are robust to unknown messages
         instead, and a lookup must only be sent to an engine that was started
-        with ``peer_lookup`` (any other engine answers with a miss, or an old
+        with `peer_lookup` (any other engine answers with a miss, or an old
         one not at all).
         """
         # NOTE(rob): this is a simple implementation. We will move
@@ -865,9 +865,9 @@ class NixlBaseConnectorScheduler:
 
         Each is released with a notify-only recv, the same message a consumer
         sends when its local prefix hit already covers the remote blocks: the
-        worker handshakes with the peer if needed and sends ``"<pin_id>:<n>"``.
+        worker handshakes with the peer if needed and sends `"<pin_id>:<n>"`.
         It never reports the recv back, because it has neither local blocks nor
-        ``awaiting_kvs`` and so no entry in the worker's recv metadata. A pin
+        `awaiting_kvs` and so no entry in the worker's recv metadata. A pin
         that cannot be released this way is left to its lease.
         """
         if self._lookup_client is None:

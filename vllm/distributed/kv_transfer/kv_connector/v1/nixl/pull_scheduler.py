@@ -221,9 +221,9 @@ class NixlPullConnectorScheduler(NixlBaseConnectorScheduler):
     ) -> tuple[int | None, bool]:
         """Peer lookup-and-pin, driven by the scheduler's repeated calls.
 
-        Returns ``(None, False)`` while the lookup is out (the scheduler skips
+        Returns `(None, False)` while the lookup is out (the scheduler skips
         the request this step). Once it is answered, either the request becomes
-        an ordinary remote prefill (``_peer_hit``) or it computes locally.
+        an ordinary remote prefill (`_peer_hit`) or it computes locally.
         """
         if params.get("peer_lookup"):
             if not params.get("_peer_lookup_submitted"):
@@ -305,7 +305,7 @@ class NixlPullConnectorScheduler(NixlBaseConnectorScheduler):
         """Cut A's pinned blocks down to what this request loads.
 
         The worker pairs the request's unhashed local blocks with the *tail* of
-        ``remote_block_ids``. A pinned more blocks than are loaded when the
+        `remote_block_ids`. A pinned more blocks than are loaded when the
         trailing prompt tokens are recomputed or the prompt is shorter than the
         hit, so the list must end exactly where the load ends.
         """
