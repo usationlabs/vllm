@@ -3,16 +3,17 @@
 """The consumer must not read remote KV after the producer's lease ran out.
 
 A router can hold a prefilled request outside the decode engine (no heartbeats)
-for longer than P's ``kv_lease_duration``. P then releases and recycles the
-blocks, so the stale ``remote_block_ids`` address other requests' KV: the NIXL
+for longer than P's `kv_lease_duration`. P then releases and recycles the
+blocks, so the stale `remote_block_ids` address other requests' KV: the NIXL
 read succeeds and silently loads corrupted KV and SSM state. The pull worker
-declines such reads (``failed_recving`` -> kv_load_failure_policy) unless its
+declines such reads (`failed_recving` -> kv_load_failure_policy) unless its
 own heartbeats kept the lease alive, which it models exactly.
 """
 
 import time
 from unittest.mock import patch
 
+import msgspec
 import pytest
 
 from vllm.distributed.kv_transfer.kv_connector.v1.base import KVConnectorRole
@@ -24,7 +25,13 @@ from vllm.distributed.kv_transfer.kv_connector.v1.nixl.base_worker import (
     _KV_BLOCKS_EXPIRY_SAFETY_MARGIN,
     RemoteLeaseModel,
 )
-from vllm.distributed.kv_transfer.kv_connector.v1.nixl.metadata import HeartbeatInfo
+from vllm.distributed.kv_transfer.kv_connector.v1.nixl.metadata import (
+    HeartbeatInfo,
+    LookupPinReply,
+    LookupPinRequest,
+    PeerKVIdentity,
+    PeerMissReason,
+)
 from vllm.distributed.kv_transfer.kv_connector.v1.nixl.utils import (
     kv_lease_extension,
 )
@@ -80,7 +87,7 @@ def _make_connector():
 
 def _recv_meta(expiry_delta: float | None, local_blocks=([10, 11],)):
     """D-side metadata for a remote-prefill read whose producer deadline is
-    ``expiry_delta`` seconds from now (None: deadline not exported)."""
+    `expiry_delta` seconds from now (None: deadline not exported)."""
     params = {
         "do_remote_prefill": True,
         "do_remote_decode": False,
@@ -103,7 +110,7 @@ def _recv_meta(expiry_delta: float | None, local_blocks=([10, 11],)):
 
 
 def _hb_meta(*req_ids: str, leases=None, engine_id: str = _REMOTE):
-    """Scheduler heartbeat batch for ``req_ids``; ``leases`` maps a remote
+    """Scheduler heartbeat batch for `req_ids`; `leases` maps a remote
     request id to (remote deadline, extension) as the scheduler ships it."""
     meta = NixlConnectorMetadata()
     meta.heartbeat_by_engine = {
@@ -482,3 +489,35 @@ def test_decode_scheduler_ships_the_lease_with_heartbeats():
     scheduler._stop_heartbeat(req.request_id)
     assert info.req_ids == {"prefill-2"}
     assert info.leases == {}
+
+
+@pytest.mark.parametrize(
+    "msg",
+    [
+        LookupPinRequest(
+            block_hashes=[b"\x01" * 32, b"\x02" * 32],
+            identity=PeerKVIdentity(
+                "abc123", 16, hash_algo="sha256", cache_salt="salt"
+            ),
+            lease_duration=30.0,
+        ),
+        LookupPinReply(
+            hit_tokens=32,
+            remote_block_ids=[[3, 4], [5, 6]],
+            remote_request_id="pin-1",
+            miss_reason=PeerMissReason.NONE,
+            remote_blocks_expiry_time=1234.5,
+            remote_lease_extension=20,
+        ),
+        LookupPinReply(
+            hit_tokens=0,
+            remote_block_ids=[],
+            remote_request_id="pin-2",
+            miss_reason=PeerMissReason.IDENTITY_MISMATCH,
+        ),
+    ],
+)
+def test_lookup_pin_wire_roundtrip(msg):
+    """Lookup-and-pin messages survive the side channel's msgpack encoding."""
+    decoded = msgspec.msgpack.Decoder(type(msg)).decode(msgspec.msgpack.encode(msg))
+    assert decoded == msg
