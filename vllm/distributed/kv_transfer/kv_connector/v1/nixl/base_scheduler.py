@@ -29,6 +29,7 @@ from vllm.distributed.kv_transfer.kv_connector.v1.base import (
 from vllm.distributed.kv_transfer.kv_connector.v1.nixl.metadata import (
     GET_META_MSG,
     LOOKUP_PIN_MSG,
+    NIXL_CONNECTOR_VERSION,
     HeartbeatInfo,
     LookupPinReply,
     LookupPinRequest,
@@ -59,6 +60,7 @@ from vllm.v1.kv_cache_interface import (
 if TYPE_CHECKING:
     from vllm.config import VllmConfig
     from vllm.v1.core.kv_cache_manager import KVCacheBlocks, KVCacheManager
+    from vllm.v1.engine import PeerLookupInfo
     from vllm.v1.kv_cache_interface import KVCacheConfig
     from vllm.v1.outputs import KVConnectorOutput
     from vllm.v1.request import Request
@@ -325,6 +327,36 @@ class NixlBaseConnectorScheduler:
                 self.kv_recompute_threshold,
                 self.decoder_kv_blocks_ttl,
             )
+
+    def get_peer_lookup_info(self) -> "PeerLookupInfo | None":
+        """How peers reach this rank for a lookup, or None if it serves none.
+
+        None unless lookups are served (`peer_lookup` set, pull mode) and the
+        layout hash is known: a peer cannot validate an empty fingerprint. The
+        hash is set by `set_xfer_handshake_metadata` during engine setup, before
+        the ready message that carries this record is built.
+        """
+        if not self._lookup.enabled or not self._compatibility_hash:
+            return None
+        from vllm.v1.engine import PeerLookupInfo
+
+        parallel_config = self.vllm_config.parallel_config
+        kv_transfer_config = self.vllm_config.kv_transfer_config
+        assert kv_transfer_config is not None and kv_transfer_config.kv_connector
+        return PeerLookupInfo(
+            enabled=True,
+            engine_id=self.engine_id,
+            side_channel_host=self.side_channel_host,
+            side_channel_port=self.side_channel_port,
+            # Same values pull_scheduler puts in the kv_transfer_params it
+            # exports, which is what a consumer must send back.
+            tp_size=self.transfer_tp_size,
+            dcp_size=parallel_config.decode_context_parallel_size,
+            pp_size=parallel_config.pipeline_parallel_size,
+            connector=kv_transfer_config.kv_connector,
+            connector_version=str(NIXL_CONNECTOR_VERSION),
+            layout_fingerprint=self._compatibility_hash,
+        )
 
     def bind_kv_cache_manager(self, kv_cache_manager: "KVCacheManager") -> None:
         """Create the peer pin server once the scheduler's cache manager exists."""

@@ -67,6 +67,7 @@ if TYPE_CHECKING:
     from vllm.forward_context import ForwardContext
     from vllm.v1.core.block_pool import BlockPool
     from vllm.v1.core.kv_cache_manager import KVCacheBlocks, KVCacheManager
+    from vllm.v1.engine import PeerLookupInfo
     from vllm.v1.kv_cache_interface import KVCacheConfig
     from vllm.v1.request import Request
 
@@ -493,6 +494,16 @@ class KVConnectorBase_V1(ABC):
     # ==============================
     # Scheduler-side methods
     # ==============================
+
+    def get_peer_lookup_info(self) -> "PeerLookupInfo | None":
+        """Describe how peers reach this engine rank for a KV prefix lookup.
+
+        Returns:
+            PeerLookupInfo: the record reported on `/kv_event_sources`.
+            None if the connector does not serve peer lookups (the default).
+
+        """
+        return None
 
     def set_engine_wakeup(self, callback: Callable[[], None]) -> None:
         """Receive a callback that wakes the engine's busy loop when it is idle.

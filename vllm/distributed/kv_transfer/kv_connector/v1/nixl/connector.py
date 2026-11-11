@@ -71,6 +71,7 @@ if TYPE_CHECKING:
         NixlBaseConnectorWorker,
     )
     from vllm.v1.core.kv_cache_manager import KVCacheBlocks, KVCacheManager
+    from vllm.v1.engine import PeerLookupInfo
     from vllm.v1.kv_cache_interface import KVCacheConfig
     from vllm.v1.request import Request
 
@@ -242,6 +243,11 @@ class NixlBaseConnector(KVConnectorBase_V1, SupportsHMA):
         """
         assert self.connector_scheduler is not None
         self.connector_scheduler.set_xfer_handshake_metadata(metadata)
+
+    def get_peer_lookup_info(self) -> "PeerLookupInfo | None":
+        if self.connector_scheduler is None:
+            return None
+        return self.connector_scheduler.get_peer_lookup_info()
 
     ############################################################
     # Worker Side Methods

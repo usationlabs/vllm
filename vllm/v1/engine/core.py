@@ -86,6 +86,7 @@ from vllm.v1.engine import (
     EngineCoreRequestType,
     FinishReason,
     PauseMode,
+    PeerLookupInfo,
     PrefixHashConfig,
     ReconfigureDistributedRequest,
     ReconfigureRankType,
@@ -2105,6 +2106,10 @@ class EngineCoreProc(EngineCore):
         except Exception:
             return None
 
+    def _get_peer_lookup_info(self) -> PeerLookupInfo | None:
+        kv_connector = self.scheduler.get_kv_connector()
+        return kv_connector.get_peer_lookup_info() if kv_connector else None
+
     def _make_ready_response(self) -> EngineCoreReadyResponse:
         parallel_config = self.vllm_config.parallel_config
         scheduler_config = self.vllm_config.scheduler_config
@@ -2139,6 +2144,7 @@ class EngineCoreProc(EngineCore):
                 else 0
             ),
             kv_events_config=self.scheduler.get_kv_event_publisher_config(),
+            peer_lookup=self._get_peer_lookup_info(),
             weight_transfer_backend=(
                 self.vllm_config.weight_transfer_config.backend
                 if self.vllm_config.weight_transfer_config is not None
